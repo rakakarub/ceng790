@@ -69,7 +69,7 @@ object Part2 {
       println("==== Question - 5 -> Create a Map(tag, numberOfTag). Final object is (Country, Map(Tag, NumberOfTag))")
       println
 
-      val tagWithFrequency = countryWithTags.map(e => (e._1, e._2.groupBy(t => t).mapValues(listOfTags => listOfTags.size).map(m => m)))
+      val tagWithFrequency = countryWithTags.map(e => (e._1, e._2.groupBy(t => t).mapValues(listOfTags => listOfTags.size)))
       tagWithFrequency.foreach(println)
 
       println("===============")
