@@ -1,5 +1,6 @@
 package edu.metu.ceng790.hw2.part1
 
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.mllib.recommendation.{ALS, MatrixFactorizationModel, Rating}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
@@ -20,6 +21,7 @@ object ALSParameterTuning {
 
     for (rank <- ranks; lambda <- lambdas; iteration <- iterations) {
       val currentModel : MatrixFactorizationModel = ALS.train(trainingData, rank, iteration, lambda)
+
       val mse = calculateMSE(currentModel, testData)
 
       println("----- Combination #" + counter + " -----")
@@ -74,11 +76,12 @@ object ALSParameterTuning {
   def main(args: Array[String]): Unit = {
 
     val dataSetHomeDir = "hw2_dataset/ml-20m/"
-    var spark: SparkSession = null
-    spark = SparkSession.builder().appName("Assignment-2_Part-1:Train A Model and Tune Parameters").config("spark.master", "local[*]").getOrCreate()
-
+    val conf = new SparkConf()
+      .setMaster("local[*]")
+      .setAppName("Assignment-2_Part-1:Getting Your Own Recommendation")
+      .set("spark.executor.memory", "3g")
     //Create Spark Context
-    val sc = spark.sparkContext
+    val sc = new SparkContext(conf)
     //Set log level
     sc.setLogLevel("ERROR")
     sc.setCheckpointDir("/tmp")
@@ -95,17 +98,25 @@ object ALSParameterTuning {
     })
 
     //Normalize the ratings
-    val avgRatingPerUser = ratings
+    val ratingsGroupByUser = ratings.groupBy(e => e.user).map(x =>
+      (x._1, x._2.map(y => y.rating)))
 
+    val userAverageRatingMap = ratingsGroupByUser.map(e => {
+      (e._1, e._2.sum/e._2.size)
+    }).collect().toMap
+
+    val avgRatingPerUser = ratings.map(e => e match {
+      case Rating(user, product, rating) =>
+        val userAvgRatings = userAverageRatingMap.get(user).get
+        Rating(user, product, rating/userAvgRatings)
+    })
+
+    avgRatingPerUser.take(1000).foreach(e => println(e.user + ", :::: " + e.rating))
     //Split data 9:1
     val splittedRatings = avgRatingPerUser.randomSplit(Array(0.9, 0.1), 12345)
     val trainingRatings = splittedRatings(0)
     val testRatings = splittedRatings(1)
 
-    println("Total rating size : " + avgRatingPerUser.count())
-    println("Training data size : " + trainingRatings.count())
-    println("Test data size : " + testRatings.count())
-    println("Ratio : " + (trainingRatings.count()/testRatings.count()))
 
     val bestModel = findBestModel(trainingRatings, testRatings)
     println("Best Lambda : " + bestModel.lambda)
