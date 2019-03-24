@@ -57,7 +57,7 @@ object collaborative_filtering {
     val iteration = 20
 
     //Built movies: Map[Int, String]
-    val moviesRaw = dataWithNoHeaderMovies.map(line => line.split(','))
+    val moviesRaw = dataWithNoHeaderMovies.map(line => line.replaceAll(", ", " ").replaceAll("\"", "").split(','))
     val movies: Map[Int, String] = moviesRaw.map(e => (e(0).toInt, e(1))).collect().toMap
 
     //Build mostRatedMovies
