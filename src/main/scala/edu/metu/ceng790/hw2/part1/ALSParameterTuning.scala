@@ -49,7 +49,6 @@ object ALSParameterTuning {
     })
 
     val modelResults = model.predict(userProductPairs)
-    modelResults.take(10).foreach(e => println("Predicted rating : " + e.rating))
 
     val testDataTuple2 = testData.map(e => e match {
       case
@@ -73,13 +72,21 @@ object ALSParameterTuning {
     mse
   }
 
+  def stdDev (list : Iterable[Double]) : (Double, Double) = {
+    val listMean = list.sum / list.size
+    val listVariance = list
+      .map(e => Math.pow(e - listMean, 2)).sum / list.size
+    val listStdDev = Math.sqrt(listVariance)
+    (listMean, listStdDev)
+  }
+
   def main(args: Array[String]): Unit = {
 
     val dataSetHomeDir = "hw2_dataset/ml-20m/"
     val conf = new SparkConf()
       .setMaster("local[*]")
       .setAppName("Assignment-2_Part-1:Getting Your Own Recommendation")
-      .set("spark.executor.memory", "3g")
+      .set("spark.executor.memory", "5g")
     //Create Spark Context
     val sc = new SparkContext(conf)
     //Set log level
@@ -101,17 +108,17 @@ object ALSParameterTuning {
     val ratingsGroupByUser = ratings.groupBy(e => e.user).map(x =>
       (x._1, x._2.map(y => y.rating)))
 
-    val userAverageRatingMap = ratingsGroupByUser.map(e => {
-      (e._1, e._2.sum/e._2.size)
+    val userStatMap = ratingsGroupByUser.map(e => {
+      (e._1, stdDev(e._2))
     }).collect().toMap
 
     val avgRatingPerUser = ratings.map(e => e match {
       case Rating(user, product, rating) =>
-        val userAvgRatings = userAverageRatingMap.get(user).get
-        Rating(user, product, rating/userAvgRatings)
+        val userRatingStdDev = userStatMap.get(user).get._1
+        val userRatingMean = userStatMap.get(user).get._2
+        Rating(user, product, (rating - userRatingMean) / userRatingStdDev)
     })
 
-    avgRatingPerUser.take(1000).foreach(e => println(e.user + ", :::: " + e.rating))
     //Split data 9:1
     val splittedRatings = avgRatingPerUser.randomSplit(Array(0.9, 0.1), 12345)
     val trainingRatings = splittedRatings(0)

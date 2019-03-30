@@ -1,5 +1,6 @@
 package edu.metu.ceng790.hw2.part1
 
+import edu.metu.ceng790.hw2.part1.ALSParameterTuning.stdDev
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.mllib.recommendation.{ALS, Rating}
 import org.apache.spark.rdd.RDD
@@ -42,23 +43,29 @@ object collaborative_filtering {
     val ratingsGroupByUser = ratings.groupBy(e => e.user).map(x =>
       (x._1, x._2.map(y => y.rating)))
 
-    val userAverageRatingMap = ratingsGroupByUser.map(e => {
-      (e._1, e._2.sum/e._2.size)
+    val userStatMap = ratingsGroupByUser.map(e => {
+      (e._1, stdDev(e._2))
     }).collect().toMap
 
     val avgRatingPerUser = ratings.map(e => e match {
       case Rating(user, product, rating) =>
-        val userAvgRatings = userAverageRatingMap.get(user).get
-        Rating(user, product, rating/userAvgRatings)
+        val userRatingStdDev = userStatMap.get(user).get._1
+        val userRatingMean = userStatMap.get(user).get._2
+        Rating(user, product, (rating - userRatingMean) / userRatingStdDev)
     })
 
     val lambda = 0.01
-    val rank = 8
+    val rank = 12
     val iteration = 20
 
     //Built movies: Map[Int, String]
-    val moviesRaw = dataWithNoHeaderMovies.map(line => line.replaceAll(", ", " ").replaceAll("\"", "").split(','))
-    val movies: Map[Int, String] = moviesRaw.map(e => (e(0).toInt, e(1))).collect().toMap
+    val moviesRaw = dataWithNoHeaderMovies
+      .map(line => line.replaceAll(", ", " ")
+        .replaceAll("\"", "")
+        .split(','))
+
+    val movies: Map[Int, String] = moviesRaw
+      .map(e => (e(0).toInt, e(1))).collect().toMap
 
     //Build mostRatedMovies
     val mostRatedMovieIDs = avgRatingPerUser.map(e => e match {
@@ -80,14 +87,15 @@ object collaborative_filtering {
     val userIDRatingsMap = userRatings.groupBy(e => e.user).map(x =>
       (x._1, x._2.map(y => y.rating)))
 
-    val userIDAvgRatingMap = userIDRatingsMap.map(e => {
-      (e._1, e._2.sum / e._2.size)
+    val userStatMapNew = userIDRatingsMap.map(e => {
+      (e._1, stdDev(e._2))
     }).collect().toMap
 
     val normalizedUserRatings = userRatings.map(e => e match  {
       case Rating(user, product, rating) =>
-        val avgRating = userIDAvgRatingMap.get(user).get
-        Rating(user, product, rating / avgRating)
+        val userRatingStdDevNew = userStatMapNew.get(user).get._1
+        val userRatingMeanNew = userStatMapNew.get(user).get._2
+        Rating(user, product, (rating - userRatingMeanNew) / userRatingStdDevNew)
     })
 
     val updatedRatings = sc.union(avgRatingPerUser, normalizedUserRatings).collect()
@@ -100,16 +108,10 @@ object collaborative_filtering {
         (0, x(0).toInt)
       })
 
-//    avgRatingPerUser.take(50).foreach(e => println(e.user + ", ::: " + e.rating))
-//    val recomPair = moviesRaw.map(x => (999999999, x(0).toInt))
-
-    println("Total Movie Size : " + moviesRaw.count())
-    println("Predicted movie size : " + recomPair.count())
-
     val newModel = ALS.train(updatedRatingsRDD, rank, iteration, lambda)
     val recommendations = newModel.predict(recomPair).sortBy(e => - e.rating).take(20)
 
-    recommendations.foreach(e => println(movies.get(e.product).toString + ", predicted rating : " + e.rating))
+    recommendations.foreach(e => println(movies.get(e.product).get.toString))
 
   }
 
