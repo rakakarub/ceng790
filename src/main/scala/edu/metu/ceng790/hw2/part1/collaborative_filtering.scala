@@ -126,19 +126,4 @@ object collaborative_filtering {
     println("Please wait for a while to get your movie recommendations :))))")
     userRatings
   }
-
-  /** Elicitate ratings from command-line. */
-  def elicitateRatingsV2(movies: Seq[(Int, String)]) = {
-    println("It is time to RATE !!!!")
-    val userRatings = movies.flatMap { x =>
-      var ratingObject: Option[Rating] = None
-        print("Your rating for the " + x._2 + " : ")
-          val rate = StdIn.readInt()
-            if (rate > 0) {
-              ratingObject = Some(Rating(1, x._1, rate))
-            }
-      ratingObject
-    }
-    userRatings
-  }
 }
