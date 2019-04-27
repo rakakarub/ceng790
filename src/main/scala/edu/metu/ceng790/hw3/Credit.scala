@@ -1,11 +1,11 @@
 package edu.metu.ceng790.hw3
 
 import org.apache.spark._
-import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.{Model, Pipeline, PipelineModel}
 import org.apache.spark.ml.classification.RandomForestClassifier
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler}
-import org.apache.spark.ml.tuning.{ParamGridBuilder, TrainValidationSplit}
+import org.apache.spark.ml.tuning.{ParamGridBuilder, TrainValidationSplit, TrainValidationSplitModel}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.functions._
@@ -39,14 +39,22 @@ object Credit {
 
   def main(args: Array[String]) {
 
-        val spark = SparkSession.builder.appName("Spark SQL").config("spark.master", "local[*]").getOrCreate()
-				val sc = spark.sparkContext
+        val spark = SparkSession.builder
+          .appName("Spark SQL")
+          .config("spark.master", "local[*]")
+          .getOrCreate()
+
+        val sc = spark.sparkContext
         sc.setLogLevel("ERROR")
-				val sqlContext = new org.apache.spark.sql.SQLContext(sc)
+
+        val sqlContext = new org.apache.spark.sql.SQLContext(sc)
 
     import sqlContext.implicits._
     // load the data into a  RDD
-    val creditDF = parseRDD(sc.textFile("credit.csv")).map(parseCredit).toDF().cache()
+    val creditDF = parseRDD(sc.textFile("credit.csv"))
+      .map(parseCredit)
+      .toDF()
+      .cache()
 
     // set a table name
     creditDF.createOrReplaceGlobalTempView("CreditTable")
@@ -54,9 +62,27 @@ object Credit {
 
     // set LABEL AND FEATURES columns
     val LABEL = "creditability"
-    val FEATURES = Array("balance", "duration", "history", "purpose", "amount", "savings", "employment",
-      "instPercent", "sexMarried", "guarantors", "residenceDuration", "assets", "age", "concCredit",
-      "apartment", "credits", "occupation", "dependents", "hasPhone", "foreign")
+    val FEATURES = Array(
+      "balance",
+      "duration",
+      "history",
+      "purpose",
+      "amount",
+      "savings",
+      "employment",
+      "instPercent",
+      "sexMarried",
+      "guarantors",
+      "residenceDuration",
+      "assets",
+      "age",
+      "concCredit",
+      "apartment",
+      "credits",
+      "occupation",
+      "dependents",
+      "hasPhone",
+      "foreign")
 
     // 1- create VectorAssembler
     val vectorAssembler = new VectorAssembler()
@@ -83,8 +109,8 @@ object Credit {
 
     // 3- Split data with 8:2 ratio
     val Array(trainData, testData) = stringIndexerDF.randomSplit(Array(0.800, 0.200), 12345L)
-    println(trainData.count())
-    println(testData.count())
+    println("Train data size : " + trainData.count())
+    println("Test data size : " + testData.count())
 
     // 4- Train a random forest classifier with random HyperParameters
     val evaluator = new BinaryClassificationEvaluator().setLabelCol("LABEL")
@@ -93,11 +119,6 @@ object Credit {
       .setSeed(1234)
       .setFeaturesCol("FEATURES")
       .setLabelCol("LABEL")
-
-    val model = randomForestClassifier.fit(trainData)
-    val predictions = model.transform(testData)
-    val firstError = evaluator.evaluate(predictions)
-    println("BEFORE : " + firstError)
 
     // Create ParamGridBuilder
     val paramGridBuilder = new ParamGridBuilder()
@@ -118,12 +139,22 @@ object Credit {
       .setEstimatorParamMaps(paramGridBuilder)
       .setTrainRatio(0.75)
 
-    val pipelineBestFittedModel = trainValidationSplit.fit(trainData).bestModel
+    val trainValidationSplitModel : TrainValidationSplitModel = trainValidationSplit.fit(trainData)
+    val pipelineBestFittedModel : PipelineModel = trainValidationSplitModel.bestModel.asInstanceOf[PipelineModel]
+
+    println("##########  Best Model's Parameter Explanation : ########## ")
+    println()
+    println(pipelineBestFittedModel.stages.last.explainParams())
+
 
     val pipelinePredictions = pipelineBestFittedModel.transform(testData)
 
-    val error = evaluator.evaluate(pipelinePredictions)
-    println("AFTER : " + error)
+    val bestAccuracy = evaluator.evaluate(pipelinePredictions)
+    println("BEST ACCURACY : " + bestAccuracy)
+
+    val trainPredictions = pipelineBestFittedModel.transform(trainData)
+    val trainAccuracy = evaluator.evaluate(trainPredictions)
+    println("TRAIN ACCURACY : " + trainAccuracy)
 
   }
 }
